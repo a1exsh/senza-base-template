@@ -103,10 +103,12 @@ SenzaComponents:
                     logging_collector: on
                     log_destination: csvlog
                     log_directory: pg_log
-                    log_filename: postgresql-%u
+                    log_filename: postgresql-%w.log
                     log_file_mode: 0644
-                    log_rotation_age: 1440
+                    log_rotation_age: 1d
                     log_truncate_on_rotation: on
+                    shared_preload_libraries: pg_stat_statements
+                    track_functions: all
                 {{#postgresqlconf}}
                     {{postgresqlconf}}
                 {{/postgresqlconf}}
@@ -119,10 +121,11 @@ SenzaComponents:
         root: True
         sysctl:
           vm.overcommit_memory: 2
-          vm.overcommit_ratio: 60
+          vm.overcommit_ratio: 80
           vm.dirty_ratio: 8
           vm.dirty_background_ratio: 1
           vm.swappiness: 1
+        appdynamics_application: 'spilo-{{version}}'
         mounts:
           /home/postgres/pgdata:
             partition: /dev/xvdk
@@ -134,9 +137,6 @@ SenzaComponents:
             erase_on_boot: true
             {{/snapshot_id}}
             options: {{fsoptions}}
-        {{#scalyr_account_key}}
-        scalyr_account_key: "{{scalyr_account_key}}"
-        {{/scalyr_account_key}}
 Resources:
   {{#add_replica_loadbalancer}}
   PostgresReplicaRoute53Record:
@@ -397,7 +397,6 @@ def set_default_variables(variables):
     variables.setdefault('postgres_port', POSTGRES_PORT)
     variables.setdefault('promotheus_port', '9100')
     variables.setdefault('replica_dns_name', None)
-    variables.setdefault('scalyr_account_key', None)
     variables.setdefault('snapshot_id', None)
     variables.setdefault('use_ebs', True)
     variables.setdefault('volume_iops', None)
@@ -491,8 +490,7 @@ def gather_user_variables(variables, account_info, region):
     kms_keyid = kms_key['KeyId']
     variables['kms_arn'] = kms_key['Arn']
 
-    for key in [k for k in variables if k.startswith('pgpassword_')] +\
-            (['scalyr_account_key'] if variables.get('scalyr_account_key') else []):
+    for key in [k for k in variables if k.startswith('pgpassword_')]:
         encrypted = encrypt(region=region.Region, KeyId=kms_keyid, Plaintext=variables[key], b64encode=True)
         variables[key] = 'aws:kms:{}'.format(encrypted)
 

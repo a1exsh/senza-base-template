@@ -102,7 +102,7 @@ SenzaComponents:
                   parameters:
                     logging_collector: on
                     log_destination: csvlog
-                    log_directory: pg_log
+                    log_directory: ../pg_log
                     log_filename: postgresql-%w.log
                     log_file_mode: 0644
                     log_rotation_age: 1d

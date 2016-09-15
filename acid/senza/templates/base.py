@@ -4,6 +4,7 @@ The template for the PostgreSQL-based Database as a Service.
 
 import random
 import string
+import re
 from urllib.parse import urlparse
 
 import boto3
@@ -19,7 +20,8 @@ from senza.templates._helper import check_s3_bucket, get_account_alias
 POSTGRES_PORT = 5432
 HEALTHCHECK_PORT = 8008
 SPILO_IMAGE_ADDRESS = "registry.opensource.zalan.do/acid/spilo-9.5"
-ODD_SG_NAME = 'Odd (SSH Bastion Host)'
+ODD_SG_GROUP_NAME_REGEX = 'Odd.*'
+ZMON_SG_GROUP_NAME_REGEX = 'app-zmon-db'
 
 # This template goes through 2 formatting phases. Once during the init phase and once during
 # the create phase of senza. Some placeholders should be evaluated during create.
@@ -467,11 +469,8 @@ def gather_user_variables(variables, account_info, region):
     if variables['postgresqlconf']:
         variables['postgresqlconf'] = generate_postgresql_configuration(variables['postgresqlconf'])
 
-    odd_sg = get_security_group(region.Region, ODD_SG_NAME)
-    variables['odd_sg_id'] = odd_sg.group_id
-
-    # Find all Security Groups attached to the zmon worker with 'zmon' in their name
-    variables['zmon_sg_id'] = detect_zmon_security_group(region.Region)
+    variables['odd_sg_id'] = detect_security_group(region.Region, ODD_SG_GROUP_NAME_REGEX)
+    variables['zmon_sg_id'] = detect_security_group(region.Region, ZMON_SG_GROUP_NAME_REGEX)
 
     if variables['volume_type'] == 'io1' and not variables['volume_iops']:
         pio_max = variables['volume_size'] * 30
@@ -639,19 +638,14 @@ def detect_eu_team_odd_instances(team_zone_name):
         fatal_error("Unable to detect odd hosts: make sure {0} account is set up correctly".format(team_zone_name))
     return odd_hosts
 
-
-def detect_zmon_security_group(region):
+def detect_security_group(region, sg_regex):
     ec2 = boto3.client('ec2', region)
-    filters = [{'Name': 'tag-key', 'Values': ['StackName']}, {'Name': 'tag-value', 'Values': ['zmon-appliance']}]
-    zmon_sgs = list()
-    for reservation in ec2.describe_instances(Filters=filters).get('Reservations', []):
-        for instance in reservation.get('Instances', []):
-            zmon_sgs += [sg['GroupId'] for sg in instance.get('SecurityGroups', []) if 'zmon' in sg['GroupName']]
 
-    if len(zmon_sgs) == 0:
-        fatal_error('Could not find zmon security group')
+    sgs = [sg for sg in ec2.describe_security_groups()['SecurityGroups'] if re.match(sg_regex, sg['GroupName'])]
 
-    if len(zmon_sgs) > 1:
-        fatal_error("More than one security group found for zmon")
+    if len(sgs) == 0:
+        fatal_error('Could not find security group which matches regex {}'.format(sg_regex))
+    if len(sgs) > 1:
+        fatal_error('More than one security group found for regex {}'.format(sg_regex))
 
-    return zmon_sgs[0]
+    return sgs[0]['GroupId']

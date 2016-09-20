@@ -114,6 +114,8 @@ SenzaComponents:
                 {{#postgresqlconf}}
                     {{postgresqlconf}}
                 {{/postgresqlconf}}
+              initdb:
+                - auth: md5
               pg_hba:
                 - hostnossl all all all reject
                 {{#ldap_suffix}}

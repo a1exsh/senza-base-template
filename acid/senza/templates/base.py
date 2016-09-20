@@ -11,7 +11,7 @@ import boto3
 import requests
 import dns.resolver
 from clickclick import fatal_error
-from senza.aws import encrypt, list_kms_keys, get_security_group
+from senza.aws import encrypt, list_kms_keys
 from senza.utils import pystache_render
 
 
@@ -114,6 +114,9 @@ SenzaComponents:
                 {{#postgresqlconf}}
                     {{postgresqlconf}}
                 {{/postgresqlconf}}
+              initdb:
+                - auth-host: md5
+                - auth-local: trust
               pg_hba:
                 - hostnossl all all all reject
                 {{#ldap_suffix}}
@@ -637,6 +640,7 @@ def detect_eu_team_odd_instances(team_zone_name):
     if not odd_hosts:
         fatal_error("Unable to detect odd hosts: make sure {0} account is set up correctly".format(team_zone_name))
     return odd_hosts
+
 
 def detect_security_group(region, sg_regex):
     ec2 = boto3.client('ec2', region)

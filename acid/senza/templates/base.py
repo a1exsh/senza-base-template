@@ -46,8 +46,8 @@ SenzaComponents:
   - AppServer:
       Type: Senza::TaupageAutoScalingGroup
       AutoScaling:
-        Minimum: 3
-        Maximum: 3
+        Minimum: {{number_of_instances}}
+        Maximum: {{number_of_instances}}
         MetricType: CPU
       InstanceType: {{instance_type}}
       {{#ebs_optimized}}
@@ -391,6 +391,7 @@ def set_default_variables(variables):
     variables.setdefault('healthcheck_port', HEALTHCHECK_PORT)
     variables.setdefault('hosted_zone', None)
     variables.setdefault('instance_type', 'm4.large')
+    variables.setdefault('number_of_instances', 3)
     variables.setdefault('ldap_url', None)
     variables.setdefault('ldap_suffix', None)
     variables.setdefault('kms_arn', None)

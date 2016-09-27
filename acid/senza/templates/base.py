@@ -682,7 +682,6 @@ def get_on_demand_price(act, region, instance_type):
         region = 'EU (Frankfurt)'
     else:
         act.fatal_error("Region {0} is not supported for EC2 by this template".format(region))
-    instance_price = None
     try:
         prices_request = requests.get(PRICE_URL)
     except RequestException as e:
@@ -696,9 +695,8 @@ def get_on_demand_price(act, region, instance_type):
                     p['attributes']['instanceType'] == instance_type and
                     p['attributes']['operatingSystem'] == 'Linux' and
                     p['attributes']['tenancy'] == 'Shared'):
-
-                    sku = p['sku']
-                    break
+                sku = p['sku']
+                break
         else:
             act.fatal_error("Cannot fetch SKU for the price of instance {0}".format(instance_type))
         price_object = prices['terms']['OnDemand'][sku]

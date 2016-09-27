@@ -508,7 +508,7 @@ def gather_user_variables(variables, account_info, region):
         with Action("Calculating the maximum spot price for {0}..".format(variables['instance_type'])) as act:
             on_demand_price = get_on_demand_price(act, variables['team_region'], variables['instance_type'])
             if on_demand_price == 0:
-                act.fatal_error("Could not get the correct on-demand price , try running without use_spot_instances")
+                act.fatal_error("Could not get the correct on-demand price, try running without use_spot_instances")
             else:
                 variables['spot_price'] = on_demand_price * 1.2
 
@@ -676,13 +676,13 @@ def get_on_demand_price(act, region, instance_type):
         then use the SKU to fetch the acutal price.
         XXX: the API returns a json of 45MB, takes long to parse
     """
-    if region == "eu-central-1":
-        region = "EU (Ireland)"
+    if region == 'eu-central-1':
+        region = 'EU (Ireland)'
     elif region == 'eu-west-1':
         region = 'EU (Frankfurt)'
     else:
-        act.fatal_error("Region {0} is not supported for EC2 by this template".forma(region))
-    instance_price = []
+        act.fatal_error("Region {0} is not supported for EC2 by this template".format(region))
+    instance_price = None
     try:
         prices_request = requests.get(PRICE_URL)
     except RequestException as e:
@@ -690,29 +690,27 @@ def get_on_demand_price(act, region, instance_type):
 
     if prices_request.ok:
         prices = prices_request.json()
-        sku = None
         for p in prices['products'].values():
             if (p['productFamily'] == 'Compute Instance' and
-                p['attributes'].get('location') == region and
-                p['attributes']['instanceType'] == instance_type and
-                p['attributes']['operatingSystem'] == 'Linux' and
-               p['attributes']['tenancy'] == 'Shared'):
-                sku = p['sku']
-                break
-        if not sku:
+                    p['attributes'].get('location') == region and
+                    p['attributes']['instanceType'] == instance_type and
+                    p['attributes']['operatingSystem'] == 'Linux' and
+                    p['attributes']['tenancy'] == 'Shared'):
+
+                    sku = p['sku']
+                    break
+        else:
             act.fatal_error("Cannot fetch SKU for the price of instance {0}".format(instance_type))
         price_object = prices['terms']['OnDemand'][sku]
         if len(price_object) != 1:
             act.fatal_error("Format error: more than one entry for SKU {0}: {1}".format(sku, price_object))
-        price_dimension = list(list(price_object.values())[0]['priceDimensions'].values())[0]
+        price_dimension = price_object.popitem()[1]['priceDimensions'].popitem()[1]
         if 'pricePerUnit' in price_dimension:
-            instance_price.append(price_dimension['pricePerUnit']['USD'])
-        if len(instance_price) == 1:
-            return float(instance_price[0])
+            instance_price = price_dimension['pricePerUnit'].get('USD', '0')
+            return float(instance_price)
         else:
-            act.fatal_error("Unable to find a single instance price for instance {0} sku {1}: {2}".format(
-                        instance_type,
-                        sku,
-                        instance_price))
+            act.fatal_error("Unable to find a single instance price for instance {0} sku {1}".format(
+                             instance_type,
+                             sku))
     else:
         act.fatal_error("Request to AWS EC2 pricing API {0} did not succeed: {1}".format(PRICE_URL, prices.status_code))

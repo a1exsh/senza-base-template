@@ -9,11 +9,11 @@ from urllib.parse import urlparse
 
 import boto3
 import requests
+from requests.exceptions import RequestException
 import dns.resolver
-from clickclick import fatal_error
+from clickclick import Action, fatal_error
 from senza.aws import encrypt, list_kms_keys
 from senza.utils import pystache_render
-
 
 from senza.templates._helper import check_s3_bucket, get_account_alias
 
@@ -22,6 +22,7 @@ HEALTHCHECK_PORT = 8008
 SPILO_IMAGE_ADDRESS = "registry.opensource.zalan.do/acid/spilo-9.5"
 ODD_SG_GROUP_NAME_REGEX = 'Odd.*'
 ZMON_SG_GROUP_NAME_REGEX = 'app-zmon-db'
+PRICE_URL = "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/index.json"
 
 # This template goes through 2 formatting phases. Once during the init phase and once during
 # the create phase of senza. Some placeholders should be evaluated during create.
@@ -50,6 +51,9 @@ SenzaComponents:
         Maximum: 3
         MetricType: CPU
       InstanceType: {{instance_type}}
+      {{#use_spot_instances}}
+      SpotPrice: {{spot_price}}
+      {{/use_spot_instances}}
       {{#ebs_optimized}}
       EbsOptimized: True
       {{/ebs_optimized}}
@@ -409,6 +413,8 @@ def set_default_variables(variables):
     variables.setdefault('volume_type', 'gp2')
     variables.setdefault('wal_s3_bucket', None)
     variables.setdefault('zmon_sg_id', None)
+    variables.setdefault('use_spot_instances', False)
+    variables.setdefault('spot_price', 0)
 
     return variables
 
@@ -497,6 +503,14 @@ def gather_user_variables(variables, account_info, region):
         variables[key] = 'aws:kms:{}'.format(encrypted)
 
     check_s3_bucket(variables['wal_s3_bucket'], region.Region)
+
+    if variables['use_spot_instances'] and variables['spot_price'] == 0:
+        with Action("Calculating the maximum spot price for {0}..".format(variables['instance_type'])) as act:
+            on_demand_price = get_on_demand_price(act, variables['team_region'], variables['instance_type'])
+            if on_demand_price == 0:
+                act.fatal_error("Could not get the correct on-demand price, try running without use_spot_instances")
+            else:
+                variables['spot_price'] = on_demand_price * 1.2
 
     return variables
 
@@ -653,3 +667,48 @@ def detect_security_group(region, sg_regex):
         fatal_error('More than one security group found for regex {}'.format(sg_regex))
 
     return sgs[0]['GroupId']
+
+
+def get_on_demand_price(act, region, instance_type):
+    """
+        Calculate prices on demand for a given region and instance type
+        Fetch the SKU of the desired on-demand instance from AWS API,
+        then use the SKU to fetch the acutal price.
+        XXX: the API returns a json of 45MB, takes long to parse
+    """
+    if region == 'eu-central-1':
+        region = 'EU (Ireland)'
+    elif region == 'eu-west-1':
+        region = 'EU (Frankfurt)'
+    else:
+        act.fatal_error("Region {0} is not supported for EC2 by this template".format(region))
+    try:
+        prices_request = requests.get(PRICE_URL)
+    except RequestException as e:
+        act.fatal_error("Could not get AWS EC2 pricing API {0}: {1}".format(PRICE_URL, e))
+
+    if prices_request.ok:
+        prices = prices_request.json()
+        for p in prices['products'].values():
+            if (p['productFamily'] == 'Compute Instance' and
+                    p['attributes'].get('location') == region and
+                    p['attributes']['instanceType'] == instance_type and
+                    p['attributes']['operatingSystem'] == 'Linux' and
+                    p['attributes']['tenancy'] == 'Shared'):
+                sku = p['sku']
+                break
+        else:
+            act.fatal_error("Cannot fetch SKU for the price of instance {0}".format(instance_type))
+        price_object = prices['terms']['OnDemand'][sku]
+        if len(price_object) != 1:
+            act.fatal_error("Format error: more than one entry for SKU {0}: {1}".format(sku, price_object))
+        price_dimension = price_object.popitem()[1]['priceDimensions'].popitem()[1]
+        if 'pricePerUnit' in price_dimension:
+            instance_price = price_dimension['pricePerUnit'].get('USD', '0')
+            return float(instance_price)
+        else:
+            act.fatal_error("Unable to find a single instance price for instance {0} sku {1}".format(
+                             instance_type,
+                             sku))
+    else:
+        act.fatal_error("Request to AWS EC2 pricing API {0} did not succeed: {1}".format(PRICE_URL, prices.status_code))

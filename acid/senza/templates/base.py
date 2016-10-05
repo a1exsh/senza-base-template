@@ -505,7 +505,7 @@ def gather_user_variables(variables, account_info, region):
 
     check_s3_bucket(variables['wal_s3_bucket'], region.Region)
 
-    if variables['use_spot_instances'] and variables['spot_price'] == 0:
+    if variables['use_spot_instances'].lower() == "true" and variables['spot_price'] == 0:
         with Action("Calculating the maximum spot price for {0}..".format(variables['instance_type'])) as act:
             on_demand_price = get_on_demand_price(act, variables['team_region'], variables['instance_type'])
             if on_demand_price == 0:
